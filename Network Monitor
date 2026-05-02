@@ -1,0 +1,96 @@
+from scapy.all import sniff, IP, TCP, UDP        # I need these to capture and read packets
+import datetime                                   # for getting current time
+import json                                       # to save data as json file
+
+class NetworkMonitor:                            # making my own class called NetworkMonitor
+    def __init__(self):                           # this runs when I create the object
+        print("Starting Network Monitor...")     # just saying hello
+        self.traffic_log = []                     # empty list to save all packets
+        self.suspicious_ips = set()               # using set because no duplicates
+        self.connection_attempts = {}             # dictionary to count how many times each IP sends packets
+    
+    def packet_callback(self, packet):            # this function runs for every packet
+        if IP in packet:                          # check if packet has IP layer
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # get current time as string
+            src_ip = packet[IP].src               # get source IP (who sent it)
+            dst_ip = packet[IP].dst               # get destination IP (where it's going)
+            
+            if TCP in packet:                     # if it's TCP packet
+                protocol = "TCP"                  # say it's TCP
+                dst_port = packet[TCP].dport      # get the port number
+            elif UDP in packet:                   # if it's UDP packet
+                protocol = "UDP"                  # say it's UDP
+                dst_port = packet[UDP].dport      # get UDP port
+            else:                                 # if not TCP or UDP
+                protocol = "OTHER"                # call it other
+                dst_port = 0                      # no port
+            
+            # Save info about this packet
+            entry = {                             # making a dictionary for one packet
+                "timestamp": timestamp,           # time
+                "source_ip": src_ip,              # from where
+                "dest_ip": dst_ip,                # to where
+                "protocol": protocol,             # TCP or UDP
+                "port": dst_port                  # which port
+            }
+            self.traffic_log.append(entry)        # add this packet to the log list
+            
+            # Count how many packets from this IP
+            if src_ip not in self.connection_attempts:   # if we never saw this IP before
+                self.connection_attempts[src_ip] = 0      # start counting from 0
+            self.connection_attempts[src_ip] += 1         # add 1 to the count
+            
+            # If someone sends too many packets → suspicious!
+            if self.connection_attempts[src_ip] > 50:     # more than 50 = bad
+                self.suspicious_ips.add(src_ip)           # add to bad list
+                print(f"THREAT: {src_ip} - Too many connections")  # alert!
+            
+            # Some ports are dangerous (like remote desktop or old services)
+            bad_ports = [23, 3389, 445]                       # telnet, RDP, SMB
+            if dst_port in bad_ports:                         # if going to bad port
+                self.suspicious_ips.add(src_ip)               # mark as suspicious
+                print(f"THREAT: {src_ip} accessing port {dst_port}")  # warn
+            
+            # Every 20 packets, show progress
+            if len(self.traffic_log) % 20 == 0:               # every 20th packet
+                print(f"Captured {len(self.traffic_log)} packets...")  # tell user
+    
+    def start_monitoring(self, duration=60):                  # function to start sniffing
+        print(f"\nMonitoring for {duration} seconds...")      # tell user how long
+        print("Please wait...\n")                             # be patient message
+        
+        try:                                                  # try to run sniff
+            sniff(prn=self.packet_callback, timeout=duration, store=False)  # capture packets
+            self.save_results()                               # after done, save files
+        except PermissionError:                               # if no admin rights
+            print("\nERROR: Need administrator/sudo access")  # error message
+            print("Windows: Run Command Prompt as Administrator")   # how to fix
+            print("Mac/Linux: Use 'sudo python3 network_monitor.py'")  # linux way
+    
+    def save_results(self):                                   # function to save everything
+        print("\nSaving results...")                          # saving message
+        
+        # Save full log as JSON
+        with open('traffic_log.json', 'w') as f:              # open file to write
+            json.dump(self.traffic_log, f, indent=2)          # save pretty json
+        
+        # Save simple summary in text file
+        with open('summary.txt', 'w') as f:                   # open summary file
+            f.write("=== NETWORK TRAFFIC SUMMARY ===\n\n")    # title
+            f.write(f"Total Packets: {len(self.traffic_log)}\n")     # total count
+            f.write(f"Unique IPs: {len(self.connection_attempts)}\n")  # how many IPs
+            f.write(f"Threats Detected: {len(self.suspicious_ips)}\n\n")  # bad guys
+            
+            if self.suspicious_ips:                           # if found bad IPs
+                f.write("SUSPICIOUS IPs:\n")                  # header
+                for ip in self.suspicious_ips:                # for each bad IP
+                    f.write(f"  {ip} - {self.connection_attempts[ip]} attempts\n")  # show count
+        
+        print(f"Captured {len(self.traffic_log)} packets")    # final success
+        print(f"Detected {len(self.suspicious_ips)} threats") # how many bad
+        print("Files saved: traffic_log.json, summary.txt\n") # done!
+
+# This runs when I execute the file directly
+if __name__ == "__main__":
+    monitor = NetworkMonitor()            # create the monitor object
+    monitor.start_monitoring(60)          # start watching for 60 seconds
