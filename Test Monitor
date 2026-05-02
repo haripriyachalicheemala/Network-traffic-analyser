@@ -1,0 +1,31 @@
+import pytest                               # I need pytest to run tests
+from network_monitor import NetworkMonitor   # importing the class I want to test
+from scapy.all import IP, TCP, Ether         # need these to make fake packets
+
+# First test: check if everything starts empty
+def test_initialization():                   # making a test function
+    monitor = NetworkMonitor()               # create a new monitor object
+    assert monitor.traffic_log == []         # traffic log should be empty list at start
+    assert len(monitor.suspicious_ips) == 0  # suspicious ips should be zero
+
+# Second test: check if packet gets added to log
+def test_packet_logging():                   # another test function
+    monitor = NetworkMonitor()               # make new monitor again
+    # making a fake normal packet from 192.168.1.1 to google dns
+    packet = Ether()/IP(src="192.168.1.1", dst="8.8.8.8")/TCP(sport=12345, dport=80)
+    monitor.packet_callback(packet)          # send the packet to the monitor
+    assert len(monitor.traffic_log) == 1     # now log should have 1 packet
+
+# Third test: check if bad packet gets detected
+def test_threat_detection():                 # test for finding suspicious ip
+    monitor = NetworkMonitor()               # create monitor again
+    # making a packet to port 3389 (RDP) which might be suspicious
+    packet = Ether()/IP(src="10.0.0.1", dst="192.168.1.1")/TCP(sport=54321, dport=3389)
+    monitor.packet_callback(packet)          # send this bad packet
+    # check if the source ip got added to suspicious list
+    assert "10.0.0.1" in monitor.suspicious_ips
+
+# this part runs the tests when I execute the file
+if __name__ == "__main__":
+    pytest.main([__file__, '-v'])            # run tests with verbose mode so I see results
+    
